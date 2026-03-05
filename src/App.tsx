@@ -3,7 +3,8 @@ import { toJpeg } from 'html-to-image';
 import jsPDF from 'jspdf';
 import { 
   User, Briefcase, GraduationCap, Mail, Phone, MapPin, Globe, 
-  Plus, Trash2, Download, Eye, Palette, Upload, Camera, Menu, X, Edit3 
+  Plus, Trash2, Download, Eye, Palette, Upload, Camera, Menu, X, Edit3,
+  AlertCircle
 } from 'lucide-react';
 
 interface PersonalInfo {
@@ -114,46 +115,22 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
+  // ✅ ÉTATS VIDES PAR DÉFAUT
   const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
-    firstName: 'Chadas ',
-    lastName: 'GLELE KAKAÏ',
-    title: 'Développeur Full Stack',
-    email: 'chadasglele@gmail.com',
-    phone: '+229 01 XX XX XX XX',
-    location: 'Bohicon, Benin',
-    website: 'www.glekadas.com',
-    summary: 'Développeur passionné avec 4+ années d\'expérience dans le développement web. Spécialisé dans les technologies modernes comme React, Node.js et TypeScript.',
+    firstName: '',
+    lastName: '',
+    title: '',
+    email: '',
+    phone: '',
+    location: '',
+    website: '',
+    summary: '',
     photo: ''
   });
 
-  const [experiences, setExperiences] = useState<Experience[]>([
-    {
-      id: '1',
-      company: 'TechCorp Solutions',
-      position: 'Développeur Full Stack',
-      startDate: '2021-01',
-      endDate: '',
-      current: true,
-      description: '• Développement d\'applications web avec React et Node.js\n• Mise en place d\'APIs RESTful et GraphQL'
-    }
-  ]);
-
-  const [educations, setEducations] = useState<Education[]>([
-    {
-      id: '1',
-      school: 'École Polytechnique de Paris',
-      degree: 'Licence',
-      field: 'Informatique',
-      startDate: '2016-09',
-      endDate: '2019-06'
-    }
-  ]);
-
-  const [skills, setSkills] = useState<Skill[]>([
-    { id: '1', name: 'React', level: 95 },
-    { id: '2', name: 'TypeScript', level: 90 },
-    { id: '3', name: 'Node.js', level: 85 }
-  ]);
+  const [experiences, setExperiences] = useState<Experience[]>([]);
+  const [educations, setEducations] = useState<Education[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -229,23 +206,67 @@ export default function App() {
     setSkills(skills.filter(skill => skill.id !== id));
   };
 
+  // ✅ Vérifier si le CV a du contenu
+  const hasContent = () => {
+    return (
+      personalInfo.firstName.trim() !== '' ||
+      personalInfo.lastName.trim() !== '' ||
+      personalInfo.title.trim() !== '' ||
+      experiences.length > 0 ||
+      educations.length > 0 ||
+      skills.length > 0
+    );
+  };
+
+  // ✅ Vérifier les champs requis
+  const isReadyToDownload = () => {
+    return personalInfo.firstName.trim() !== '' && personalInfo.lastName.trim() !== '';
+  };
+
   const generatePDF = async () => {
+    if (!isReadyToDownload()) {
+      alert("Veuillez au moins renseigner votre prénom et nom avant de télécharger.");
+      return;
+    }
+
     try {
       setIsGenerating(true);
 
       if (activeTab !== 'preview') {
         setActiveTab('preview');
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 600));
       }
 
       const element = previewRef.current;
-      if (!element) return;
+      if (!element) {
+        console.error("Élément preview non trouvé");
+        return;
+      }
+
+      const a4Width = 210;
+      const a4Height = 297;
+      const cvWidth = 794;
 
       const dataUrl = await toJpeg(element, {
-        quality: 1,
+        quality: 0.95,
         pixelRatio: 2,
         backgroundColor: '#ffffff',
+        cacheBust: true,
       });
+
+      const img = new Image();
+      img.src = dataUrl;
+
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      const imgWidth = img.width;
+      const imgHeight = img.height;
+      const ratio = a4Width / cvWidth;
+      const pageHeightInPixels = (a4Height / ratio) * (imgWidth / cvWidth);
+      const totalPages = Math.ceil(imgHeight / pageHeightInPixels);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -253,21 +274,50 @@ export default function App() {
         format: 'a4',
       });
 
-      const img = new Image();
-      img.src = dataUrl;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
 
-      await new Promise((resolve) => {
-        img.onload = resolve;
-      });
+      if (!ctx) {
+        console.error("Impossible de créer le contexte canvas");
+        return;
+      }
 
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (img.height * pdfWidth) / img.width;
+      for (let page = 0; page < totalPages; page++) {
+        const startY = page * pageHeightInPixels;
+        const captureHeight = Math.min(pageHeightInPixels, imgHeight - startY);
 
-      pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${personalInfo.lastName}_${personalInfo.firstName}_CV.pdf`);
+        canvas.width = imgWidth;
+        canvas.height = captureHeight;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.drawImage(
+          img,
+          0, startY,
+          imgWidth, captureHeight,
+          0, 0,
+          imgWidth, captureHeight
+        );
+
+        const pageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+        if (page > 0) {
+          pdf.addPage();
+        }
+
+        const pdfImgWidth = a4Width;
+        const pdfImgHeight = (captureHeight * a4Width) / imgWidth;
+
+        pdf.addImage(pageDataUrl, 'JPEG', 0, 0, pdfImgWidth, pdfImgHeight);
+      }
+
+      const fileName = `${personalInfo.lastName.trim() || 'CV'}_${personalInfo.firstName.trim() || 'Utilisateur'}_CV.pdf`;
+      pdf.save(fileName);
 
     } catch (error) {
       console.error("Erreur génération PDF :", error);
+      alert("Erreur lors de la génération du PDF. Veuillez réessayer.");
     } finally {
       setIsGenerating(false);
     }
@@ -275,9 +325,14 @@ export default function App() {
 
   const currentTheme = themes[theme];
 
+  // ✅ Filtrer les expériences avec du contenu pour l'aperçu
+  const filledExperiences = experiences.filter(exp => exp.company || exp.position);
+  const filledEducations = educations.filter(edu => edu.school || edu.degree);
+  const filledSkills = skills.filter(skill => skill.name);
+
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header - Responsive */}
+      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-auto sm:py-4">
@@ -288,7 +343,7 @@ export default function App() {
               </div>
               <div className="hidden xs:block">
                 <h1 className="text-lg sm:text-2xl font-bold text-gray-900">CV Creator Pro</h1>
-                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Générez votre CV professionnel</p>
+                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Créez votre CV professionnel</p>
               </div>
             </div>
 
@@ -355,8 +410,9 @@ export default function App() {
               {/* Download Button */}
               <button
                 onClick={generatePDF}
-                disabled={isGenerating}
-                className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-2.5 ${currentTheme.primary} text-white rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-70 font-medium`}
+                disabled={isGenerating || !isReadyToDownload()}
+                className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-2.5 ${currentTheme.primary} text-white rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium`}
+                title={!isReadyToDownload() ? "Remplissez au moins le prénom et le nom" : ""}
               >
                 {isGenerating ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -369,7 +425,6 @@ export default function App() {
 
             {/* Mobile Menu Button */}
             <div className="flex md:hidden items-center gap-2">
-              {/* Mobile Tab Toggle */}
               <div className="flex rounded-lg shadow-sm border border-gray-300 overflow-hidden bg-white">
                 <button
                   onClick={() => setActiveTab('edit')}
@@ -397,7 +452,6 @@ export default function App() {
           {/* Mobile Menu Dropdown */}
           {mobileMenuOpen && (
             <div className="md:hidden py-4 border-t border-gray-200 space-y-3">
-              {/* Theme Selection */}
               <div>
                 <p className="text-sm font-semibold text-gray-700 mb-2">Thème</p>
                 <div className="grid grid-cols-8 gap-2">
@@ -413,14 +467,13 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Download Button */}
               <button
                 onClick={() => {
                   generatePDF();
                   setMobileMenuOpen(false);
                 }}
-                disabled={isGenerating}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 ${currentTheme.primary} text-white rounded-xl shadow-lg font-medium`}
+                disabled={isGenerating || !isReadyToDownload()}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 ${currentTheme.primary} text-white rounded-xl shadow-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {isGenerating ? (
                   <>
@@ -430,7 +483,7 @@ export default function App() {
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    Télécharger PDF
+                    {isReadyToDownload() ? 'Télécharger PDF' : 'Remplissez le formulaire'}
                   </>
                 )}
               </button>
@@ -443,6 +496,20 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 lg:py-8">
         {activeTab === 'edit' ? (
           <div className="space-y-4 sm:space-y-6 lg:space-y-8">
+            
+            {/* ✅ Message d'aide si formulaire vide */}
+            {!hasContent() && (
+              <div className={`${currentTheme.secondary} border ${currentTheme.border} rounded-xl p-4 sm:p-6 flex items-start gap-3`}>
+                <AlertCircle className={`w-5 h-5 sm:w-6 sm:h-6 ${currentTheme.text} flex-shrink-0 mt-0.5`} />
+                <div>
+                  <h3 className={`font-semibold ${currentTheme.text} text-sm sm:text-base`}>Bienvenue sur GLEKADAS CV Creator !</h3>
+                  <p className="text-gray-600 text-sm mt-1">
+                    Commencez par remplir vos informations personnelles ci-dessous. Les champs grisés vous montrent des exemples de ce que vous pouvez écrire.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Personal Info Section */}
             <section className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-6 sm:mb-8">
@@ -458,13 +525,14 @@ export default function App() {
               <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
                 {/* Photo Upload */}
                 <div className="flex flex-col items-center lg:flex-shrink-0">
-                  <div className="w-28 h-28 sm:w-36 sm:h-36 lg:w-40 lg:h-40 rounded-full border-4 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 mb-3 sm:mb-4">
+                  <div className="w-28 h-28 sm:w-36 sm:h-36 lg:w-40 lg:h-40 rounded-full border-4 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50 mb-3 sm:mb-4 hover:border-gray-400 transition-colors cursor-pointer"
+                       onClick={() => fileInputRef.current?.click()}>
                     {personalInfo.photo ? (
                       <img src={personalInfo.photo} alt="Photo" className="w-full h-full object-cover" />
                     ) : (
                       <div className="text-center p-2 sm:p-4">
                         <Camera className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto mb-1 sm:mb-2" />
-                        <span className="text-xs text-gray-500">400x400px</span>
+                        <span className="text-xs text-gray-500">Cliquez pour ajouter</span>
                       </div>
                     )}
                   </div>
@@ -478,15 +546,15 @@ export default function App() {
                   <div className="flex flex-wrap justify-center gap-2">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm ${currentTheme.secondary} ${currentTheme.text} rounded-lg sm:rounded-xl font-medium`}
+                      className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm ${currentTheme.secondary} ${currentTheme.text} rounded-lg sm:rounded-xl font-medium hover:opacity-80 transition-opacity`}
                     >
                       <Upload className="w-3 h-3 sm:w-4 sm:h-4" />
-                      <span className="hidden xs:inline">Ajouter</span> photo
+                      Photo
                     </button>
                     {personalInfo.photo && (
                       <button
                         onClick={removePhoto}
-                        className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-red-50 text-red-600 rounded-lg sm:rounded-xl font-medium"
+                        className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-red-50 text-red-600 rounded-lg sm:rounded-xl font-medium hover:bg-red-100 transition-colors"
                       >
                         <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
                       </button>
@@ -497,23 +565,27 @@ export default function App() {
                 {/* Form Fields */}
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Prénom</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">
+                      Prénom <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="text"
                       value={personalInfo.firstName}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, firstName: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Jean"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: Chadas, Espoir, Nevis..."
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Nom</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">
+                      Nom <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="text"
                       value={personalInfo.lastName}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, lastName: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Dupont"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: GLELE, GANYEHESSOU, AWELE..."
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -522,8 +594,8 @@ export default function App() {
                       type="text"
                       value={personalInfo.title}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, title: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Développeur Full Stack"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: Développeur Web, Marketing Community, Security System..."
                     />
                   </div>
                   <div>
@@ -532,8 +604,8 @@ export default function App() {
                       type="email"
                       value={personalInfo.email}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, email: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="jean@email.com"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: votremail@gmail.com"
                     />
                   </div>
                   <div>
@@ -542,8 +614,8 @@ export default function App() {
                       type="tel"
                       value={personalInfo.phone}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, phone: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="+33 6 12 34 56 78"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: +229 01 XX XX XX XX"
                     />
                   </div>
                   <div>
@@ -552,18 +624,18 @@ export default function App() {
                       type="text"
                       value={personalInfo.location}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, location: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Paris, France"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: Cotonou, Benin"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Site Web</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Site Web / Portfolio</label>
                     <input
                       type="text"
                       value={personalInfo.website}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, website: e.target.value })}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="www.site.fr"
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      placeholder="Ex: www.monsite.com ou linkedin.com/in/votrenom"
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -572,8 +644,8 @@ export default function App() {
                       value={personalInfo.summary}
                       onChange={(e) => setPersonalInfo({ ...personalInfo, summary: e.target.value })}
                       rows={4}
-                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                      placeholder="Décrivez brièvement votre parcours..."
+                      className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none transition-all"
+                      placeholder="Ex: Développeur passionné avec 5 ans d'expérience dans le développement web. Spécialisé en React et Node.js, je cherche à contribuer à des projets innovants..."
                     />
                   </div>
                 </div>
@@ -588,103 +660,111 @@ export default function App() {
                     <Briefcase className={`w-5 h-5 sm:w-6 sm:h-6 ${currentTheme.text}`} />
                   </div>
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Expériences</h2>
-                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Détaillez votre parcours</p>
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Expériences Professionnelles</h2>
+                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Ajoutez vos expériences de travail</p>
                   </div>
                 </div>
                 <button
                   onClick={addExperience}
-                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base`}
+                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base hover:opacity-90 transition-opacity`}
                 >
                   <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>Ajouter</span>
+                  <span>Ajouter une expérience</span>
                 </button>
               </div>
 
-              <div className="space-y-4 sm:space-y-6">
-                {experiences.map((exp, index) => (
-                  <div key={exp.id} className="border-2 border-gray-100 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                    <div className="flex justify-between items-start mb-4 sm:mb-6">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${currentTheme.secondary} flex items-center justify-center`}>
-                          <span className={`font-bold text-sm sm:text-base ${currentTheme.text}`}>{index + 1}</span>
+              {experiences.length === 0 ? (
+                <div className="text-center py-8 sm:py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <Briefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 mb-2">Aucune expérience ajoutée</p>
+                  <p className="text-sm text-gray-400">Cliquez sur "Ajouter une expérience" pour commencer</p>
+                </div>
+              ) : (
+                <div className="space-y-4 sm:space-y-6">
+                  {experiences.map((exp, index) => (
+                    <div key={exp.id} className="border-2 border-gray-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:border-gray-200 transition-colors">
+                      <div className="flex justify-between items-start mb-4 sm:mb-6">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${currentTheme.secondary} flex items-center justify-center`}>
+                            <span className={`font-bold text-sm sm:text-base ${currentTheme.text}`}>{index + 1}</span>
+                          </div>
+                          <span className="text-xs sm:text-sm font-medium text-gray-500">Expérience #{index + 1}</span>
                         </div>
-                        <span className="text-xs sm:text-sm font-medium text-gray-500">Expérience #{index + 1}</span>
+                        <button
+                          onClick={() => removeExperience(exp.id)}
+                          className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg sm:rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => removeExperience(exp.id)}
-                        className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg sm:rounded-xl"
-                      >
-                        <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Entreprise</label>
-                        <input
-                          type="text"
-                          value={exp.company}
-                          onChange={(e) => updateExperience(exp.id, 'company', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Nom de l'entreprise"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Poste</label>
-                        <input
-                          type="text"
-                          value={exp.position}
-                          onChange={(e) => updateExperience(exp.id, 'position', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Votre poste"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de début</label>
-                        <input
-                          type="month"
-                          value={exp.startDate}
-                          onChange={(e) => updateExperience(exp.id, 'startDate', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de fin</label>
-                        <input
-                          type="month"
-                          value={exp.endDate}
-                          onChange={(e) => updateExperience(exp.id, 'endDate', e.target.value)}
-                          disabled={exp.current}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
-                        />
-                      </div>
-                      <div className="sm:col-span-2 flex items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 rounded-lg sm:rounded-xl">
-                        <input
-                          type="checkbox"
-                          id={`current-${exp.id}`}
-                          checked={exp.current}
-                          onChange={(e) => updateExperience(exp.id, 'current', e.target.checked)}
-                          className="w-4 h-4 sm:w-5 sm:h-5 rounded border-gray-300 text-blue-600"
-                        />
-                        <label htmlFor={`current-${exp.id}`} className="text-sm sm:text-base font-medium text-gray-700">
-                          Poste actuel
-                        </label>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Description</label>
-                        <textarea
-                          value={exp.description}
-                          onChange={(e) => updateExperience(exp.id, 'description', e.target.value)}
-                          rows={4}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                          placeholder="• Vos missions et réalisations..."
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Entreprise</label>
+                          <input
+                            type="text"
+                            value={exp.company}
+                            onChange={(e) => updateExperience(exp.id, 'company', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                            placeholder="Ex: Google, Microsoft, Startup XYZ..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Poste occupé</label>
+                          <input
+                            type="text"
+                            value={exp.position}
+                            onChange={(e) => updateExperience(exp.id, 'position', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                            placeholder="Ex: Développeur Senior, Chef de projet..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de début</label>
+                          <input
+                            type="month"
+                            value={exp.startDate}
+                            onChange={(e) => updateExperience(exp.id, 'startDate', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de fin</label>
+                          <input
+                            type="month"
+                            value={exp.endDate}
+                            onChange={(e) => updateExperience(exp.id, 'endDate', e.target.value)}
+                            disabled={exp.current}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed transition-all"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 rounded-lg sm:rounded-xl">
+                          <input
+                            type="checkbox"
+                            id={`current-${exp.id}`}
+                            checked={exp.current}
+                            onChange={(e) => updateExperience(exp.id, 'current', e.target.checked)}
+                            className="w-4 h-4 sm:w-5 sm:h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <label htmlFor={`current-${exp.id}`} className="text-sm sm:text-base font-medium text-gray-700">
+                            Je travaille actuellement ici
+                          </label>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Description des missions</label>
+                          <textarea
+                            value={exp.description}
+                            onChange={(e) => updateExperience(exp.id, 'description', e.target.value)}
+                            rows={4}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none transition-all"
+                            placeholder="Ex:&#10;• Développement d'applications web avec React&#10;• Gestion d'une équipe de 5 développeurs&#10;• Amélioration des performances de 40%"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Education Section */}
@@ -696,89 +776,97 @@ export default function App() {
                   </div>
                   <div>
                     <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Formation</h2>
-                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Parcours académique</p>
+                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Ajoutez votre parcours académique</p>
                   </div>
                 </div>
                 <button
                   onClick={addEducation}
-                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base`}
+                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base hover:opacity-90 transition-opacity`}
                 >
                   <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>Ajouter</span>
+                  <span>Ajouter une formation</span>
                 </button>
               </div>
 
-              <div className="space-y-4 sm:space-y-6">
-                {educations.map((edu, index) => (
-                  <div key={edu.id} className="border-2 border-gray-100 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                    <div className="flex justify-between items-start mb-4 sm:mb-6">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${currentTheme.secondary} flex items-center justify-center`}>
-                          <span className={`font-bold text-sm sm:text-base ${currentTheme.text}`}>{index + 1}</span>
+              {educations.length === 0 ? (
+                <div className="text-center py-8 sm:py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <GraduationCap className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 mb-2">Aucune formation ajoutée</p>
+                  <p className="text-sm text-gray-400">Cliquez sur "Ajouter une formation" pour commencer</p>
+                </div>
+              ) : (
+                <div className="space-y-4 sm:space-y-6">
+                  {educations.map((edu, index) => (
+                    <div key={edu.id} className="border-2 border-gray-100 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:border-gray-200 transition-colors">
+                      <div className="flex justify-between items-start mb-4 sm:mb-6">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                          <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${currentTheme.secondary} flex items-center justify-center`}>
+                            <span className={`font-bold text-sm sm:text-base ${currentTheme.text}`}>{index + 1}</span>
+                          </div>
+                          <span className="text-xs sm:text-sm font-medium text-gray-500">Formation #{index + 1}</span>
                         </div>
-                        <span className="text-xs sm:text-sm font-medium text-gray-500">Formation #{index + 1}</span>
+                        <button
+                          onClick={() => removeEducation(edu.id)}
+                          className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg sm:rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => removeEducation(edu.id)}
-                        className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg sm:rounded-xl"
-                      >
-                        <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
-                      <div className="sm:col-span-2">
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Établissement</label>
-                        <input
-                          type="text"
-                          value={edu.school}
-                          onChange={(e) => updateEducation(edu.id, 'school', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Nom de l'école"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Diplôme</label>
-                        <input
-                          type="text"
-                          value={edu.degree}
-                          onChange={(e) => updateEducation(edu.id, 'degree', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Licence, Master..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Domaine</label>
-                        <input
-                          type="text"
-                          value={edu.field}
-                          onChange={(e) => updateEducation(edu.id, 'field', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Informatique..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Début</label>
-                        <input
-                          type="month"
-                          value={edu.startDate}
-                          onChange={(e) => updateEducation(edu.id, 'startDate', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Fin</label>
-                        <input
-                          type="month"
-                          value={edu.endDate}
-                          onChange={(e) => updateEducation(edu.id, 'endDate', e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Établissement</label>
+                          <input
+                            type="text"
+                            value={edu.school}
+                            onChange={(e) => updateEducation(edu.id, 'school', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                            placeholder="Ex: Université Paris-Saclay, École Polytechnique..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Diplôme</label>
+                          <input
+                            type="text"
+                            value={edu.degree}
+                            onChange={(e) => updateEducation(edu.id, 'degree', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                            placeholder="Ex: Licence, Master, Doctorat, BTS..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Domaine d'études</label>
+                          <input
+                            type="text"
+                            value={edu.field}
+                            onChange={(e) => updateEducation(edu.id, 'field', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                            placeholder="Ex: Informatique, Marketing, Gestion..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de début</label>
+                          <input
+                            type="month"
+                            value={edu.startDate}
+                            onChange={(e) => updateEducation(edu.id, 'startDate', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 mb-1.5 sm:mb-2">Date de fin</label>
+                          <input
+                            type="month"
+                            value={edu.endDate}
+                            onChange={(e) => updateEducation(edu.id, 'endDate', e.target.value)}
+                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Skills Section */}
@@ -792,76 +880,91 @@ export default function App() {
                   </div>
                   <div>
                     <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Compétences</h2>
-                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Vos compétences techniques</p>
+                    <p className="text-sm sm:text-base text-gray-500 hidden sm:block">Ajoutez vos compétences techniques et soft skills</p>
                   </div>
                 </div>
                 <button
                   onClick={addSkill}
-                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base`}
+                  className={`flex items-center justify-center gap-2 w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 ${currentTheme.primary} text-white rounded-xl font-medium text-sm sm:text-base hover:opacity-90 transition-opacity`}
                 >
                   <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>Ajouter</span>
+                  <span>Ajouter une compétence</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
-                {skills.map((skill, index) => (
-                  <div key={skill.id} className="flex flex-col p-4 sm:p-6 border-2 border-gray-100 rounded-xl sm:rounded-2xl">
-                    <div className="flex items-center justify-between mb-3 sm:mb-4">
-                      <div className="flex items-center gap-2 sm:gap-3 flex-1">
-                        <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-lg ${currentTheme.secondary} flex items-center justify-center flex-shrink-0`}>
-                          <span className={`text-xs sm:text-sm font-bold ${currentTheme.text}`}>{index + 1}</span>
+              {skills.length === 0 ? (
+                <div className="text-center py-8 sm:py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                  <p className="text-gray-500 mb-2">Aucune compétence ajoutée</p>
+                  <p className="text-sm text-gray-400">Cliquez sur "Ajouter une compétence" pour commencer</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 lg:gap-5">
+                  {skills.map((skill, index) => (
+                    <div key={skill.id} className="flex flex-col p-4 sm:p-6 border-2 border-gray-100 rounded-xl sm:rounded-2xl hover:border-gray-200 transition-colors">
+                      <div className="flex items-center justify-between mb-3 sm:mb-4">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1">
+                          <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-lg ${currentTheme.secondary} flex items-center justify-center flex-shrink-0`}>
+                            <span className={`text-xs sm:text-sm font-bold ${currentTheme.text}`}>{index + 1}</span>
+                          </div>
+                          <input
+                            type="text"
+                            value={skill.name}
+                            onChange={(e) => updateSkill(skill.id, 'name', e.target.value)}
+                            className="flex-1 min-w-0 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base border-0 border-b-2 border-gray-200 focus:ring-0 focus:border-blue-500 font-medium transition-colors"
+                            placeholder="Ex: JavaScript, Gestion de projet, Communication..."
+                          />
                         </div>
-                        <input
-                          type="text"
-                          value={skill.name}
-                          onChange={(e) => updateSkill(skill.id, 'name', e.target.value)}
-                          className="flex-1 min-w-0 px-2 sm:px-3 py-1.5 sm:py-2 text-sm sm:text-base border-0 border-b-2 border-gray-200 focus:ring-0 focus:border-blue-500 font-medium"
-                          placeholder="Compétence"
-                        />
+                        <button
+                          onClick={() => removeSkill(skill.id)}
+                          className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg flex-shrink-0 ml-2 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => removeSkill(skill.id)}
-                        className="p-1.5 sm:p-2 text-red-500 hover:bg-red-50 rounded-lg flex-shrink-0 ml-2"
-                      >
-                        <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-3 sm:gap-4">
-                      <div className="flex-1">
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={skill.level}
-                          onChange={(e) => updateSkill(skill.id, 'level', parseInt(e.target.value))}
-                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                      </div>
-                      <div className="w-12 sm:w-14 h-8 sm:h-10 flex items-center justify-center rounded-lg sm:rounded-xl bg-gray-50 border border-gray-200 flex-shrink-0">
-                        <span className="text-sm sm:text-lg font-bold text-gray-700">{skill.level}%</span>
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="flex-1">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={skill.level}
+                            onChange={(e) => updateSkill(skill.id, 'level', parseInt(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                          />
+                          <div className="flex justify-between mt-1 text-xs text-gray-400">
+                            <span>Débutant</span>
+                            <span>Expert</span>
+                          </div>
+                        </div>
+                        <div className="w-12 sm:w-14 h-8 sm:h-10 flex items-center justify-center rounded-lg sm:rounded-xl bg-gray-50 border border-gray-200 flex-shrink-0">
+                          <span className="text-sm sm:text-lg font-bold text-gray-700">{skill.level}%</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
         ) : (
-          /* Preview Section - Responsive */
+          /* Preview Section */
           <div className="flex flex-col items-center">
             {/* Preview Header */}
             <div className="w-full max-w-4xl mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Aperçu du CV</h2>
-                  <p className="text-sm sm:text-base text-gray-500">Vérifiez avant de télécharger</p>
+                  <p className="text-sm sm:text-base text-gray-500">
+                    {hasContent() ? 'Vérifiez avant de télécharger' : 'Remplissez le formulaire pour voir l\'aperçu'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                  {/* Zoom Controls for Mobile */}
                   <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-white rounded-lg border border-gray-200 shadow-sm">
                     <button
-                      onClick={() => setPreviewScale(Math.max(0.5, previewScale - 0.1))}
+                      onClick={() => setPreviewScale(Math.max(0.3, previewScale - 0.1))}
                       className="p-1 hover:bg-gray-100 rounded"
                     >
                       <span className="text-lg font-bold text-gray-600">−</span>
@@ -884,8 +987,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* CV Preview Container with scroll */}
-            <div className="w-full overflow-x-auto pb-4">
+            {/* CV Preview Container */}
+            <div className="w-full overflow-x-auto pb-20">
               <div 
                 className="mx-auto transition-transform duration-200"
                 style={{ 
@@ -897,51 +1000,54 @@ export default function App() {
                 <div
                   ref={previewRef}
                   id="cv-preview"
-                  className="bg-white shadow-2xl rounded-xl sm:rounded-2xl overflow-hidden"
-                  style={{ width: '794px', minHeight: '1122px' }}
+                  className="bg-white shadow-2xl rounded-none overflow-hidden"
+                  style={{ width: '794px' }}
                 >
                   {/* CV Header */}
-                  <div className={`${currentTheme.preview} text-white p-6 sm:p-8 lg:p-12 relative overflow-hidden`}>
-                    <div className="absolute top-0 right-0 w-48 sm:w-64 h-48 sm:h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    <div className="absolute bottom-0 left-0 w-36 sm:w-48 h-36 sm:h-48 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+                  <div className={`${currentTheme.preview} text-white p-12 relative overflow-hidden`}>
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2"></div>
 
-                    <div className="relative z-10 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 lg:gap-8">
+                    <div className="relative z-10 flex flex-row items-center gap-8">
                       {personalInfo.photo && (
                         <div className="flex-shrink-0">
-                          <div className="w-24 h-24 sm:w-32 sm:h-32 lg:w-36 lg:h-36 rounded-full border-4 border-white/30 shadow-2xl overflow-hidden">
+                          <div className="w-36 h-36 rounded-full border-4 border-white/30 shadow-2xl overflow-hidden">
                             <img src={personalInfo.photo} alt="Photo" className="w-full h-full object-cover" />
                           </div>
                         </div>
                       )}
 
-                      <div className="text-center sm:text-left flex-1">
-                        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold mb-2 sm:mb-3 tracking-tight">
-                          {personalInfo.firstName} <span className="font-light">{personalInfo.lastName}</span>
+                      <div className="text-left flex-1">
+                        <h1 className="text-4xl font-extrabold mb-3 tracking-tight">
+                          {personalInfo.firstName || 'Votre Prénom'}{' '}
+                          <span className="font-light">{personalInfo.lastName || 'Votre Nom'}</span>
                         </h1>
-                        <p className="text-lg sm:text-xl lg:text-2xl font-light opacity-95 mb-4 sm:mb-6">{personalInfo.title}</p>
+                        <p className="text-xl font-light opacity-95 mb-6">
+                          {personalInfo.title || 'Votre Titre Professionnel'}
+                        </p>
 
-                        <div className="flex flex-wrap justify-center sm:justify-start gap-2 sm:gap-3 text-xs sm:text-sm">
+                        <div className="flex flex-wrap justify-start gap-3 text-sm">
                           {personalInfo.email && (
-                            <div className="flex items-center gap-1.5 sm:gap-2 bg-white/10 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full">
-                              <Mail className="w-3 h-3 sm:w-4 sm:h-4" />
+                            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full">
+                              <Mail className="w-4 h-4" />
                               <span>{personalInfo.email}</span>
                             </div>
                           )}
                           {personalInfo.phone && (
-                            <div className="flex items-center gap-1.5 sm:gap-2 bg-white/10 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full">
-                              <Phone className="w-3 h-3 sm:w-4 sm:h-4" />
+                            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full">
+                              <Phone className="w-4 h-4" />
                               <span>{personalInfo.phone}</span>
                             </div>
                           )}
                           {personalInfo.location && (
-                            <div className="flex items-center gap-1.5 sm:gap-2 bg-white/10 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full">
-                              <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
+                            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full">
+                              <MapPin className="w-4 h-4" />
                               <span>{personalInfo.location}</span>
                             </div>
                           )}
                           {personalInfo.website && (
-                            <div className="flex items-center gap-1.5 sm:gap-2 bg-white/10 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full">
-                              <Globe className="w-3 h-3 sm:w-4 sm:h-4" />
+                            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-full">
+                              <Globe className="w-4 h-4" />
                               <span>{personalInfo.website}</span>
                             </div>
                           )}
@@ -951,54 +1057,70 @@ export default function App() {
                   </div>
 
                   {/* CV Content */}
-                  <div className="p-6 sm:p-8 lg:p-12">
+                  <div className="p-12">
+                    {/* Message si pas de contenu */}
+                    {!hasContent() && (
+                      <div className="text-center py-16">
+                        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
+                          <Edit3 className="w-10 h-10 text-gray-400" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-gray-700 mb-2">Votre CV est vide</h3>
+                        <p className="text-gray-500 max-w-md mx-auto">
+                          Retournez à l'onglet "Éditer" pour remplir vos informations personnelles, 
+                          ajouter vos expériences, formations et compétences.
+                        </p>
+                      </div>
+                    )}
+
                     {/* Professional Summary */}
                     {personalInfo.summary && (
-                      <section className="mb-8 sm:mb-10 lg:mb-12">
-                        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-                          <div className={`w-1 h-6 sm:h-8 ${currentTheme.primary} rounded-full`}></div>
-                          <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
+                      <section className="mb-10">
+                        <div className="flex items-center gap-3 mb-6">
+                          <div className={`w-1 h-8 ${currentTheme.primary} rounded-full`}></div>
+                          <h2 className={`text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
                             Profil Professionnel
                           </h2>
                         </div>
-                        <p className="text-gray-700 leading-relaxed text-base sm:text-lg">
+                        <p className="text-gray-700 leading-relaxed text-base">
                           {personalInfo.summary}
                         </p>
                       </section>
                     )}
 
                     {/* Professional Experience */}
-                    {experiences.length > 0 && (
-                      <section className="mb-8 sm:mb-10 lg:mb-12">
-                        <div className="flex items-center gap-2 sm:gap-3 mb-6 sm:mb-8">
-                          <div className={`w-1 h-6 sm:h-8 ${currentTheme.primary} rounded-full`}></div>
-                          <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
-                            Expériences
+                    {filledExperiences.length > 0 && (
+                      <section className="mb-10">
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className={`w-1 h-8 ${currentTheme.primary} rounded-full`}></div>
+                          <h2 className={`text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
+                            Expériences Professionnelles
                           </h2>
                         </div>
-                        <div className="space-y-6 sm:space-y-8 lg:space-y-10">
-                          {experiences.map((exp) => (
-                            <div key={exp.id} className="relative pl-6 sm:pl-8 border-l-2 border-gray-100">
-                              <div className={`absolute -left-2 sm:-left-2.5 top-0 w-4 h-4 sm:w-5 sm:h-5 rounded-full ${currentTheme.primary} border-4 border-white shadow-md`}></div>
-                              <div className="flex flex-col gap-2 sm:gap-0 sm:flex-row sm:items-start sm:justify-between mb-3 sm:mb-4">
+                        <div className="space-y-8">
+                          {filledExperiences.map((exp) => (
+                            <div key={exp.id} className="relative pl-8 border-l-2 border-gray-200">
+                              <div className={`absolute -left-2.5 top-0 w-5 h-5 rounded-full ${currentTheme.primary} border-4 border-white shadow-md`}></div>
+                              <div className="flex flex-row items-start justify-between mb-3">
                                 <div>
-                                  <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">{exp.position}</h3>
-                                  <p className={`text-base sm:text-lg font-medium ${currentTheme.text}`}>{exp.company}</p>
+                                  <h3 className="text-xl font-bold text-gray-900 mb-1">{exp.position || 'Poste non spécifié'}</h3>
+                                  <p className={`text-lg font-medium ${currentTheme.text}`}>{exp.company || 'Entreprise non spécifiée'}</p>
                                 </div>
-                                <span className="inline-flex items-center px-3 sm:px-4 py-1 sm:py-1.5 bg-gray-100 text-gray-700 rounded-full text-xs sm:text-sm font-medium w-fit">
-                                  {exp.startDate && new Date(exp.startDate).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })}
-                                  {' - '}
-                                  {exp.current ? (
-                                    <span className={`font-semibold ${currentTheme.text}`}>Présent</span>
-                                  ) : (
-                                    exp.endDate ? new Date(exp.endDate).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }) : ''
-                                  )}
-                                </span>
+                                {(exp.startDate || exp.endDate || exp.current) && (
+                                  <span className="inline-flex items-center px-4 py-1.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium whitespace-nowrap">
+                                    {exp.startDate && new Date(exp.startDate).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })}
+                                    {(exp.startDate && (exp.endDate || exp.current)) && ' - '}
+                                    {exp.current ? (
+                                      <span className={`font-semibold ${currentTheme.text}`}>Présent</span>
+                                    ) : (
+                                      exp.endDate && new Date(exp.endDate).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+                                    )}
+                                  </span>
+                                )}
                               </div>
                               {exp.description && (
-                                <div className="text-gray-700 whitespace-pre-line text-sm sm:text-base leading-relaxed">
+                                <div className="text-gray-700 whitespace-pre-line text-base leading-relaxed">
                                   {exp.description.split('\n').map((line, index) => (
-                                    <p key={index} className="mb-1.5 sm:mb-2 last:mb-0">{line}</p>
+                                    <p key={index} className="mb-1.5 last:mb-0">{line}</p>
                                   ))}
                                 </div>
                               )}
@@ -1009,31 +1131,33 @@ export default function App() {
                     )}
 
                     {/* Education */}
-                    {educations.length > 0 && (
-                      <section className="mb-8 sm:mb-10 lg:mb-12">
-                        <div className="flex items-center gap-2 sm:gap-3 mb-6 sm:mb-8">
-                          <div className={`w-1 h-6 sm:h-8 ${currentTheme.primary} rounded-full`}></div>
-                          <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
+                    {filledEducations.length > 0 && (
+                      <section className="mb-10">
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className={`w-1 h-8 ${currentTheme.primary} rounded-full`}></div>
+                          <h2 className={`text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
                             Formation
                           </h2>
                         </div>
-                        <div className="space-y-6 sm:space-y-8">
-                          {educations.map((edu) => (
-                            <div key={edu.id} className="relative pl-6 sm:pl-8 border-l-2 border-gray-100">
-                              <div className={`absolute -left-2 sm:-left-2.5 top-0 w-4 h-4 sm:w-5 sm:h-5 rounded-full ${currentTheme.primary} border-4 border-white shadow-md`}></div>
-                              <div className="flex flex-col gap-2 sm:gap-0 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-6">
+                          {filledEducations.map((edu) => (
+                            <div key={edu.id} className="relative pl-8 border-l-2 border-gray-200">
+                              <div className={`absolute -left-2.5 top-0 w-5 h-5 rounded-full ${currentTheme.primary} border-4 border-white shadow-md`}></div>
+                              <div className="flex flex-row items-start justify-between">
                                 <div>
-                                  <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">{edu.school}</h3>
-                                  <p className="text-gray-700 text-base sm:text-lg">
-                                    <span className="font-medium">{edu.degree}</span>
+                                  <h3 className="text-xl font-bold text-gray-900 mb-1">{edu.school || 'Établissement non spécifié'}</h3>
+                                  <p className="text-gray-700 text-lg">
+                                    <span className="font-medium">{edu.degree || 'Diplôme non spécifié'}</span>
                                     {edu.field && <span className="text-gray-500"> en {edu.field}</span>}
                                   </p>
                                 </div>
-                                <span className="inline-flex items-center px-3 sm:px-4 py-1 sm:py-1.5 bg-gray-100 text-gray-700 rounded-full text-xs sm:text-sm font-medium w-fit">
-                                  {edu.startDate && new Date(edu.startDate).toLocaleDateString('fr-FR', { year: 'numeric' })}
-                                  {' - '}
-                                  {edu.endDate ? new Date(edu.endDate).toLocaleDateString('fr-FR', { year: 'numeric' }) : ''}
-                                </span>
+                                {(edu.startDate || edu.endDate) && (
+                                  <span className="inline-flex items-center px-4 py-1.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium whitespace-nowrap">
+                                    {edu.startDate && new Date(edu.startDate).toLocaleDateString('fr-FR', { year: 'numeric' })}
+                                    {(edu.startDate && edu.endDate) && ' - '}
+                                    {edu.endDate && new Date(edu.endDate).toLocaleDateString('fr-FR', { year: 'numeric' })}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1042,22 +1166,22 @@ export default function App() {
                     )}
 
                     {/* Skills */}
-                    {skills.length > 0 && (
+                    {filledSkills.length > 0 && (
                       <section>
-                        <div className="flex items-center gap-2 sm:gap-3 mb-6 sm:mb-8">
-                          <div className={`w-1 h-6 sm:h-8 ${currentTheme.primary} rounded-full`}></div>
-                          <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className={`w-1 h-8 ${currentTheme.primary} rounded-full`}></div>
+                          <h2 className={`text-2xl font-bold ${currentTheme.text} uppercase tracking-wide`}>
                             Compétences
                           </h2>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                          {skills.map((skill) => (
+                        <div className="grid grid-cols-2 gap-6">
+                          {filledSkills.map((skill) => (
                             <div key={skill.id}>
-                              <div className="flex justify-between mb-1.5 sm:mb-2">
-                                <span className="text-gray-800 font-semibold text-base sm:text-lg">{skill.name}</span>
-                                <span className={`text-xs sm:text-sm font-bold ${currentTheme.text}`}>{skill.level}%</span>
+                              <div className="flex justify-between mb-2">
+                                <span className="text-gray-800 font-semibold text-base">{skill.name}</span>
+                                <span className={`text-sm font-bold ${currentTheme.text}`}>{skill.level}%</span>
                               </div>
-                              <div className="h-2 sm:h-3 bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                              <div className="h-3 bg-gray-100 rounded-full overflow-hidden shadow-inner">
                                 <div
                                   className={`h-full ${currentTheme.primary} rounded-full`}
                                   style={{ width: `${skill.level}%` }}
@@ -1071,27 +1195,34 @@ export default function App() {
                   </div>
 
                   {/* Footer */}
-                  <div className="bg-gray-50 px-6 sm:px-8 lg:px-12 py-4 sm:py-6 border-t border-gray-100">
-                    <div className="flex flex-col sm:flex-row items-center justify-between text-xs sm:text-sm text-gray-500 gap-2">
-                      <p>CV généré avec CV Creator Pro • {new Date().toLocaleDateString('fr-FR')}</p>
-                      <p>{personalInfo.firstName} {personalInfo.lastName}</p>
+                  {hasContent() && (
+                    <div className="bg-gray-50 px-12 py-6 border-t border-gray-100">
+                      <div className="flex flex-row items-center justify-between text-sm text-gray-500">
+                        <p>CV généré avec GLEKADAS CV Creator • {new Date().toLocaleDateString('fr-FR')}</p>
+                        <p>{personalInfo.firstName} {personalInfo.lastName}</p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Mobile Download Button */}
+            {/* Download Button */}
             <div className="fixed bottom-4 sm:bottom-6 lg:bottom-8 left-4 right-4 sm:left-auto sm:right-6 lg:right-8 z-40">
               <button
                 onClick={generatePDF}
-                disabled={isGenerating}
-                className={`w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 sm:py-4 ${currentTheme.primary} text-white rounded-xl sm:rounded-2xl shadow-2xl font-semibold text-base sm:text-lg`}
+                disabled={isGenerating || !isReadyToDownload()}
+                className={`w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 sm:py-4 ${currentTheme.primary} text-white rounded-xl sm:rounded-2xl shadow-2xl font-semibold text-base sm:text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all`}
               >
                 {isGenerating ? (
                   <>
                     <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     <span>Génération...</span>
+                  </>
+                ) : !isReadyToDownload() ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span>Remplissez le formulaire</span>
                   </>
                 ) : (
                   <>
@@ -1113,7 +1244,7 @@ export default function App() {
               <div className={`${currentTheme.primary} p-1.5 sm:p-2 rounded-lg`}>
                 <Briefcase className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="text-lg sm:text-xl font-bold text-gray-900">CV Creator Pro</span>
+              <span className="text-lg sm:text-xl font-bold text-gray-900">GLEKADAS CV Creator</span>
             </div>
             <p className="text-sm text-gray-500 text-center sm:text-right">
               Créez des CV professionnels • {new Date().getFullYear()}
@@ -1122,7 +1253,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Overlay for theme picker on mobile */}
+      {/* Overlay for theme picker */}
       {showThemePicker && (
         <div 
           className="fixed inset-0 bg-black/20 z-10 md:hidden"
