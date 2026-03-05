@@ -115,14 +115,14 @@ export default function App() {
   const previewRef = useRef<HTMLDivElement>(null);
 
   const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
-    firstName: 'Jean',
-    lastName: 'Dupont',
+    firstName: 'Chadas ',
+    lastName: 'GLELE KAKAÏ',
     title: 'Développeur Full Stack',
-    email: 'jean.dupont@email.com',
-    phone: '+33 6 12 34 56 78',
-    location: 'Paris, France',
-    website: 'www.jeandupont.fr',
-    summary: 'Développeur passionné avec 5+ années d\'expérience dans le développement web. Spécialisé dans les technologies modernes comme React, Node.js et TypeScript.',
+    email: 'chadasglele@gmail.com',
+    phone: '+229 01 XX XX XX XX',
+    location: 'Bohicon, Benin',
+    website: 'www.glekadas.com',
+    summary: 'Développeur passionné avec 4+ années d\'expérience dans le développement web. Spécialisé dans les technologies modernes comme React, Node.js et TypeScript.',
     photo: ''
   });
 
@@ -142,7 +142,7 @@ export default function App() {
     {
       id: '1',
       school: 'École Polytechnique de Paris',
-      degree: 'Master',
+      degree: 'Licence',
       field: 'Informatique',
       startDate: '2016-09',
       endDate: '2019-06'
